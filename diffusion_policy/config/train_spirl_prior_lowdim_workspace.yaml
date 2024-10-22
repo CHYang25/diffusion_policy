@@ -1,0 +1,125 @@
+defaults:
+  - _self_
+  - task: pusht_lowdim
+
+name: train_spirl_prior_lowdim
+_target_: diffusion_policy.workspace.train_spirl_prior_lowdim_workspace.TrainSpirlPriorLowdimWorkspace
+
+obs_dim: ${task.obs_dim}
+action_dim: ${task.action_dim}
+keypoint_dim: ${task.keypoint_dim}
+task_name: ${task.name}
+exp_name: "default"
+
+horizon: 12
+n_obs_steps: 2
+n_action_steps: 10
+n_latency_steps: 0
+past_action_visible: False
+keypoint_visible_rate: 1.0
+
+prior:
+  _target_: diffusion_policy.model.spirl.spirl_prior_model.SpirlPriorNetwork
+
+  # hyper parameter, to meet the code design of SPiRL
+  hp:
+    use_convs: False
+    n_rollout_steps: 10
+    cond_decode: False       # If True, condition the decoder on prior inputs
+
+    # Network size
+    state_dim: ${obs_dim}
+    action_dim: ${action_dim}
+    nz_enc: 32               # number of dimensions in encoder-latent space
+    nz_vae: 10               # number of dimensions in vae-latent space
+    nz_mid: 32               # number of dimensions for internal feature spaces
+    nz_mid_lstm: 128         # size of middle LSTM layers
+    n_lstm_layers: 1         # number of LSTM layers
+    n_processing_layers: 3   # number of layers in MLPs
+
+    # Learned Prior
+    n_prior_nets: 1              # number of prior networks in ensemble
+    num_prior_net_layers: 6      # number of layers of the learned prior MLP
+    nz_mid_prior: 128            # dimensionality of internal feature spaces for prior net
+    nll_prior_train: True        # if True, trains learned prior by maximizing NLL (Negative Log Likelihood)
+    learned_prior_type: gauss    # distribution type for learned prior, ['gauss', 'gmm', 'flow']
+    n_gmm_prior_components: 5    # number of Gaussian components for GMM(Gaussian Mixture Model) learned prior
+
+    normalization: batch
+    target_kl: null
+    reconstruction_mse_weight: 1.0
+    kl_div_weight: 1.0
+
+dataloader:
+  batch_size: 256
+  num_workers: 1
+  shuffle: False
+  pin_memory: True
+  persistent_workers: False
+
+val_dataloader:
+  batch_size: 256
+  num_workers: 1
+  shuffle: False
+  pin_memory: True
+  persistent_workers: False
+
+optimizer:
+  _target_: torch.optim.RAdam
+  lr: 1.0e-3
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+
+training:
+  device: "cuda:0"
+  seed: 42
+  debug: False
+  resume: True
+  # optimization
+  lr_scheduler: cosine
+  lr_warmup_steps: 500
+  num_epochs: 1000
+  gradient_accumulate_every: 1
+  # training loop control
+  # in epochs
+  rollout_every: 50
+  checkpoint_every: 50
+  val_every: 1
+  sample_every: 5
+  sample_max_batch: 256
+  # steps per epoch
+  max_train_steps: null
+  max_val_steps: null
+  # misc
+  tqdm_interval_sec: 1.0
+
+logging:
+  project: diffusion_policy_debug
+  resume: True
+  mode: online
+  name: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
+  tags: ["${name}", "${task_name}", "${exp_name}"]
+  id: null
+  group: null
+
+checkpoint:
+  topk:
+    monitor_key: val_loss
+    mode: max
+    k: 5
+    format_str: 'epoch={epoch:04d}-val_loss={val_loss:.3f}.ckpt'
+  save_last_ckpt: True
+  save_last_snapshot: False
+
+multi_run:
+  run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
+
+hydra:
+  job:
+    override_dirname: ${name}
+  run:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  sweep:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+    subdir: ${hydra.job.num}

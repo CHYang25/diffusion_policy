@@ -10,7 +10,7 @@ if __name__ == "__main__":
 import os
 import hydra
 import torch
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 import pathlib
 from torch.utils.data import DataLoader
 import copy
@@ -22,16 +22,17 @@ import shutil
 
 from diffusion_policy.common.pytorch_util import dict_apply, optimizer_to
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
-from diffusion_policy.policy.option_bc_lowdim_policy import OptionBCLowdimPolicy
+from diffusion_policy.model.spirl.spirl_prior_model import SpirlPriorNetwork
 from diffusion_policy.dataset.base_dataset import BaseLowdimDataset
 from diffusion_policy.env_runner.base_lowdim_runner import BaseLowdimRunner
 from diffusion_policy.common.checkpoint_util import TopKCheckpointManager
 from diffusion_policy.common.json_logger import JsonLogger
 from diffusion_policy.model.common.lr_scheduler import get_scheduler
+from diffusion_policy.model.spirl.utils.general_utils import AttrDict
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
-class TrainOptionBCLowdimWorkspace(BaseWorkspace):
+class TrainSpirlPriorLowdimWorkspace(BaseWorkspace):
     include_keys = ['global_step', 'epoch']
 
     def __init__(self, cfg: OmegaConf, output_dir=None):
@@ -43,9 +44,14 @@ class TrainOptionBCLowdimWorkspace(BaseWorkspace):
         np.random.seed(seed)
         random.seed(seed)
 
+        # add hyperparameter settings to prior to meet spirl implementation
+        with open_dict(cfg):
+            cfg.prior.hp.batch_size = cfg.dataloader.batch_size
+            cfg.prior.hp.device = cfg.training.device
+
         # configure model
-        self.model: OptionBCLowdimPolicy
-        self.model = hydra.utils.instantiate(cfg.policy)
+        self.model: SpirlPriorNetwork
+        self.model = hydra.utils.instantiate(cfg.prior)
 
         # configure training state
         self.optimizer = hydra.utils.instantiate(
@@ -74,8 +80,6 @@ class TrainOptionBCLowdimWorkspace(BaseWorkspace):
         # configure validation dataset
         val_dataset = dataset.get_validation_dataset()
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
-
-        self.model.set_normalizer(normalizer)
 
         # configure lr scheduler
         lr_scheduler = get_scheduler(
@@ -147,8 +151,13 @@ class TrainOptionBCLowdimWorkspace(BaseWorkspace):
                         if train_sampling_batch is None:
                             train_sampling_batch = batch
 
+                        inputs = AttrDict(batch)
+                        # for key, values in batch.items():
+                        #     inputs.update({key: values})
+                        
                         # compute loss
-                        raw_loss = self.model.compute_loss(batch)
+                        raw_loss = self.model.compute_loss(inputs)
+                        raw_loss = raw_loss.total.value # meet the return type of the spirl prior model
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         loss.backward()
 
@@ -186,15 +195,8 @@ class TrainOptionBCLowdimWorkspace(BaseWorkspace):
                 step_log['train_loss'] = train_loss
 
                 # ========= eval for this epoch ==========
-                policy = self.model
-                policy.eval()
-
-                # run rollout
-                if (self.epoch % cfg.training.rollout_every) == 0:
-                    runner_log = env_runner.run(policy)
-                    policy.ot_1 = None
-                    # log all
-                    step_log.update(runner_log)
+                self.model.eval()
+                # No need to run rollout for skill prior
 
                 # run validation
                 if (self.epoch % cfg.training.val_every) == 0:
@@ -204,7 +206,11 @@ class TrainOptionBCLowdimWorkspace(BaseWorkspace):
                                 leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                                loss = self.model.compute_loss(batch)
+
+                                inputs = AttrDict(batch)
+
+                                loss = self.model.compute_loss(inputs)
+                                loss = loss.total.value # meet the return type of the spirl prior model
                                 val_losses.append(loss)
                                 if (cfg.training.max_val_steps is not None) \
                                     and batch_idx >= (cfg.training.max_val_steps-1):
@@ -214,30 +220,17 @@ class TrainOptionBCLowdimWorkspace(BaseWorkspace):
                             # log epoch average validation loss
                             step_log['val_loss'] = val_loss
 
-                # run sampling on a training batch
+                # run check reconstruction mse on a training batch
                 if (self.epoch % cfg.training.sample_every) == 0:
                     with torch.no_grad():
-                        # sample trajectory from training set, and evaluate difference
-                        batch = train_sampling_batch
-                        n_samples = cfg.training.sample_max_batch
-                        obs_dict = {'obs': batch['obs'][:n_samples]}
-                        gt_action = batch['action'][:n_samples]
-
-                        result = policy.predict_action(obs_dict)
-                        policy.ot_1 = None
-                        pred_action = result['action']
-                        start = cfg.n_obs_steps - 1
-                        end = start + cfg.n_action_steps
-                        gt_action = gt_action[:,start:end]
-                        mse = torch.nn.functional.mse_loss(pred_action, gt_action)
+                        outputs = self.model(inputs)
+                        mse = torch.nn.functional.mse_loss(inputs.action, outputs.reconstruction)
                         # log
                         step_log['train_action_mse_error'] = mse.item()
                         # release RAM
                         del batch
-                        del obs_dict
-                        del gt_action
-                        del result
-                        del pred_action
+                        del inputs
+                        del outputs
                         del mse
                 
                 # checkpoint
@@ -262,7 +255,7 @@ class TrainOptionBCLowdimWorkspace(BaseWorkspace):
                     if topk_ckpt_path is not None:
                         self.save_checkpoint(path=topk_ckpt_path)
                 # ========= eval end for this epoch ==========
-                policy.train()
+                self.model.train()
 
                 # end of epoch
                 # log of last step is combined with validation and rollout
@@ -276,7 +269,7 @@ class TrainOptionBCLowdimWorkspace(BaseWorkspace):
     config_path=str(pathlib.Path(__file__).parent.parent.joinpath("config")), 
     config_name=pathlib.Path(__file__).stem)
 def main(cfg):
-    workspace = TrainOptionBCLowdimWorkspace(cfg)
+    workspace = TrainSpirlPriorLowdimWorkspace(cfg)
     workspace.run()
 
 if __name__ == "__main__":

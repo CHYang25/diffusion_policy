@@ -107,7 +107,7 @@ class OptionBCLowdimPolicy(BaseLowdimPolicy):
         log_acts = self.log_prob_action(obs, None, action).view(-1, self.opt_dim)
         log_opts = self.log_trans(obs, None)
         
-        log_opt0 = log_opts[0, -1] # the last option #
+        log_opt0 = log_opts[0, -1] # the last option 
         log_opts = log_opts[1:, :-1]
         log_alpha = [log_opt0 + log_acts[0]]
         for log_opt, log_act in zip(log_opts, log_acts[1:]):

@@ -15,29 +15,30 @@ dataloader:
   pin_memory: true
   shuffle: true
 exp_name: default
-horizon: 3
+horizon: 10
 keypoint_dim: 2
 keypoint_visible_rate: 1.0
 logging:
   group: null
   id: null
   mode: online
-  name: ${now:%Y.%m.%d-%H.%M.%S}_train_bet_lowdim_blockpush_lowdim_seed
-  project: exp_block_pushing
+  name: ${now:%Y.%m.%d-%H.%M.%S}_train_bet_lowdim_pusht_lowdim
+  project: exp_pusht
   resume: true
   tags:
   - train_bet_lowdim
-  - blockpush_lowdim_seed
+  - pusht_lowdim
   - default
 multi_run:
-  run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_train_bet_lowdim_blockpush_lowdim_seed
-  wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_train_bet_lowdim_blockpush_lowdim_seed
-n_action_steps: 1
-n_obs_steps: 3
+  run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_train_bet_lowdim_pusht_lowdim
+  wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_train_bet_lowdim_pusht_lowdim
+n_action_steps: 8
+n_latency_steps: 0
+n_obs_steps: 2
 name: train_bet_lowdim
 obs_as_global_cond: false
 obs_as_local_cond: false
-obs_dim: 16
+obs_dim: 20
 optimizer:
   betas:
   - 0.9
@@ -52,19 +53,19 @@ policy:
     action_dim: 2
     num_bins: 24
     predict_offsets: true
-  horizon: 3
-  n_action_steps: 1
-  n_obs_steps: 3
+  horizon: 10
+  n_action_steps: 8
+  n_obs_steps: 2
   obs_encoding_net:
     _target_: torch.nn.Identity
-    output_dim: 16
+    output_dim: 20
   state_prior:
     _target_: diffusion_policy.model.bet.latent_generators.mingpt.MinGPT
     action_dim: 2
-    block_size: 3
+    block_size: 10
     discrete_input: false
     focal_loss_gamma: 2.0
-    input_dim: 16
+    input_dim: 20
     n_embd: 72
     n_head: 4
     n_layer: 4
@@ -75,36 +76,36 @@ pred_action_steps_only: false
 task:
   action_dim: 2
   dataset:
-    _target_: diffusion_policy.dataset.blockpush_lowdim_dataset.BlockPushLowdimDataset
-    horizon: 3
-    obs_eef_target: true
-    pad_after: 0
-    pad_before: 2
+    _target_: diffusion_policy.dataset.pusht_dataset.PushTLowdimDataset
+    horizon: 10
+    max_train_episodes: 90
+    pad_after: 7
+    pad_before: 1
     seed: 42
-    use_manual_normalizer: false
     val_ratio: 0.02
-    zarr_path: data/block_pushing/multimodal_push_seed.zarr
+    zarr_path: data/pusht/pusht_cchi_v7_replay.zarr
   env_runner:
-    _target_: diffusion_policy.env_runner.blockpush_lowdim_runner.BlockPushLowdimRunner
-    abs_action: false
-    fps: 5
-    max_steps: 350
-    n_action_steps: 1
+    _target_: diffusion_policy.env_runner.pusht_keypoints_runner.PushTKeypointsRunner
+    agent_keypoints: false
+    fps: 10
+    keypoint_visible_rate: 1.0
+    legacy_test: true
+    max_steps: 300
+    n_action_steps: 8
     n_envs: null
-    n_obs_steps: 3
+    n_latency_steps: 0
+    n_obs_steps: 2
     n_test: 50
     n_test_vis: 4
     n_train: 6
     n_train_vis: 2
-    obs_eef_target: true
     past_action: false
     test_start_seed: 100000
     train_start_seed: 0
   keypoint_dim: 2
-  name: blockpush_lowdim_seed
-  obs_dim: 16
-  obs_eef_target: true
-task_name: blockpush_lowdim_seed
+  name: pusht_lowdim
+  obs_dim: 20
+task_name: pusht_lowdim
 training:
   checkpoint_every: 50
   debug: false

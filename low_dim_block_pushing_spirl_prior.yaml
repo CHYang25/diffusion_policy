@@ -1,0 +1,138 @@
+_target_: diffusion_policy.workspace.train_spirl_prior_lowdim_workspace.TrainSpirlPriorLowdimWorkspace
+action_dim: 2
+checkpoint:
+  save_last_ckpt: true
+  save_last_snapshot: false
+  topk:
+    format_str: epoch={epoch:04d}-val_loss={val_loss:.3f}.ckpt
+    k: 5
+    mode: max
+    monitor_key: val_loss
+dataloader:
+  batch_size: 256
+  num_workers: 1
+  persistent_workers: false
+  pin_memory: true
+  shuffle: true
+exp_name: default
+horizon: 12
+# keypoint_dim: 2
+keypoint_visible_rate: 1.0
+logging:
+  group: null
+  id: null
+  mode: online
+  name: ${now:%Y.%m.%d-%H.%M.%S}_train_spirl_prior_lowdim_blockpush_lowdim_seed_abs
+  project: exp_block_pushing
+  resume: true
+  tags:
+  - train_spirl_prior_lowdim
+  - blockpush_lowdim_seed_abs
+  - default
+multi_run:
+  run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_train_spirl_prior_lowdim_blockpush_lowdim_seed
+  wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_train_spirl_prior_lowdim_blockpush_lowdim_seed
+n_action_steps: 10
+n_latency_steps: 0
+n_obs_steps: 2
+name: train_spirl_lowdim
+obs_dim: 16
+optimizer:
+  _target_: torch.optim.RAdam
+  betas:
+  - 0.9
+  - 0.999
+  eps: 1.0e-08
+  lr: 0.001
+past_action_visible: false
+prior:
+  _target_: diffusion_policy.model.spirl.spirl_prior_model.SpirlPriorNetwork
+
+  # hyper parameter, to meet the code design of SPiRL
+  hp:
+    use_convs: False
+    n_rollout_steps: 10
+    cond_decode: False       # If True, condition the decoder on prior inputs
+
+    # Network size
+    state_dim: ${obs_dim}
+    action_dim: ${action_dim}
+    nz_enc: 32               # number of dimensions in encoder-latent space
+    nz_vae: 10               # number of dimensions in vae-latent space
+    nz_mid: 32               # number of dimensions for internal feature spaces
+    nz_mid_lstm: 128         # size of middle LSTM layers
+    n_lstm_layers: 1         # number of LSTM layers
+    n_processing_layers: 3   # number of layers in MLPs
+
+    # Learned Prior
+    n_prior_nets: 1              # number of prior networks in ensemble
+    num_prior_net_layers: 6      # number of layers of the learned prior MLP
+    nz_mid_prior: 128            # dimensionality of internal feature spaces for prior net
+    nll_prior_train: True        # if True, trains learned prior by maximizing NLL (Negative Log Likelihood)
+    learned_prior_type: gauss    # distribution type for learned prior, ['gauss', 'gmm', 'flow']
+    n_gmm_prior_components: 5    # number of Gaussian components for GMM(Gaussian Mixture Model) learned prior
+
+    normalization: batch
+    target_kl: null
+    reconstruction_mse_weight: 1.0
+    kl_div_weight: 1.0
+  
+  n_action_steps: 10
+  n_obs_steps: 2
+
+task:
+  action_dim: 2
+  dataset:
+    _target_: diffusion_policy.dataset.blockpush_lowdim_dataset.BlockPushLowdimDataset
+    horizon: 12
+    obs_eef_target: true
+    pad_after: 7
+    pad_before: 1
+    seed: 42
+    use_manual_normalizer: false
+    val_ratio: 0.02
+    zarr_path: data/block_pushing/multimodal_push_seed_abs.zarr
+  env_runner:
+    _target_: diffusion_policy.env_runner.blockpush_lowdim_runner.BlockPushLowdimRunner
+    abs_action: true
+    fps: 5
+    max_steps: 350
+    n_action_steps: 10
+    n_envs: null
+    n_obs_steps: 2
+    n_test: 50
+    n_test_vis: 4
+    n_train: 6
+    n_train_vis: 2
+    obs_eef_target: true
+    past_action: false
+    test_start_seed: 100000
+    train_start_seed: 0
+  keypoint_dim: 2
+  name: blockpush_lowdim_seed_abs
+  obs_dim: 16
+  obs_eef_target: true
+task_name: blockpush_lowdim_seed_abs
+training:
+  checkpoint_every: 50
+  debug: false
+  device: cuda:0
+  gradient_accumulate_every: 1
+  lr_scheduler: cosine
+  lr_warmup_steps: 500
+  max_train_steps: null
+  max_val_steps: null
+  num_epochs: 5000
+  resume: true
+  rollout_every: 50
+  sample_every: 5
+  sample_max_batch: 100
+  seed: 42
+  tqdm_interval_sec: 1.0
+  val_every: 1
+val_dataloader:
+  batch_size: 256
+  num_workers: 1
+  persistent_workers: false
+  pin_memory: true
+  shuffle: false

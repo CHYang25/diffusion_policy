@@ -46,6 +46,7 @@ dependencies:
   - diffusers=0.11.1
   - av=10.0.0
   - cmake=3.24.3
+  - funcsigs=1.0.2 # for spirl
   # trick to avoid cpu affinity issue described in https://github.com/pytorch/pytorch/issues/99625
   - llvm-openmp=14
   # trick to force reinstall imagecodecs via pip

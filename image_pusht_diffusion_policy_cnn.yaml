@@ -29,7 +29,7 @@ logging:
   id: null
   mode: online
   name: 2023.01.16-20.20.06_train_diffusion_unet_hybrid_pusht_image
-  project: diffusion_policy_debug
+  project: exp_pusht
   resume: true
   tags:
   - train_diffusion_unet_hybrid
